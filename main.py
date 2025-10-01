@@ -13,7 +13,6 @@ load_dotenv()
 # -------------------
 class HomeworkOutput(BaseModel):
     is_homework: bool
-    subject: str
     reasoning: str
 
 # -------------------
@@ -21,18 +20,14 @@ class HomeworkOutput(BaseModel):
 # -------------------
 guardrail_agent = Agent(
     name="Guardrail check",
-    instructions=(
-        "Check if the user is asking about homework. "
-        "If yes, classify whether it is a math or history question. "
-        "Respond with is_homework, subject, and reasoning."
-    ),
+    instructions="Check if the user is asking about homework. Respond with is_homework true/false and reasoning.",
     output_type=HomeworkOutput,
 )
 
 math_tutor_agent = Agent(
     name="Math Tutor",
     handoff_description="Specialist agent for math questions",
-    instructions="You provide the final numeric answer only",
+    instructions="You provide the final numeric answer only.",
 )
 
 history_tutor_agent = Agent(
@@ -59,31 +54,24 @@ async def get_student(student_name: str):
 # -------------------
 # Guardrail
 # -------------------
-async def subject_guardrail(ctx, agent, input_data):
-    student_subject = ctx.context.get("student_subject")
-
-    # Use guardrail_agent to classify input
+async def homework_guardrail(ctx, agent, input_data):
     result = await Runner.run(guardrail_agent, input_data, context=ctx.context)
     final_output = result.final_output_as(HomeworkOutput)
 
-    # Block if not homework at all
-    if not final_output.is_homework:
-        return GuardrailFunctionOutput(output_info=final_output, tripwire_triggered=True)
-
-    # Block if subject doesn’t match the student's allowed subject
-    if final_output.subject.lower() != student_subject.lower():
-        return GuardrailFunctionOutput(output_info=final_output, tripwire_triggered=True)
-
-    return GuardrailFunctionOutput(output_info=final_output, tripwire_triggered=False)
+    # Block if not homework
+    return GuardrailFunctionOutput(
+        output_info=final_output,
+        tripwire_triggered=not final_output.is_homework,
+    )
 
 # -------------------
 # Triage Agent
 # -------------------
 triage_agent = Agent(
     name="Triage Agent",
-    instructions="Route to history or math tutor if valid for the student.",
+    instructions="You determine whether the homework question is history or math, and hand it off to the correct tutor.",
     handoffs=[history_tutor_agent, math_tutor_agent],
-    input_guardrails=[InputGuardrail(guardrail_function=subject_guardrail)],
+    input_guardrails=[InputGuardrail(guardrail_function=homework_guardrail)],
 )
 
 # -------------------
@@ -110,7 +98,6 @@ async def ask_question(student_name, question):
 async def main():
     student_name = input("Enter student name (alice or bob): ").strip().lower()
     question = input("Enter your question: ").strip()
-
     await ask_question(student_name, question)
 
 if __name__ == "__main__":
